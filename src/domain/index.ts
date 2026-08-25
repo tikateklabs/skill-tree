@@ -5,3 +5,5 @@ export * from "./requirement.js";
 export * from "./node.js";
 export * from "./graph.js";
 export * from "./patch.js";
+export * from "./jsonSchema.js";
+export * from "./validate.js";

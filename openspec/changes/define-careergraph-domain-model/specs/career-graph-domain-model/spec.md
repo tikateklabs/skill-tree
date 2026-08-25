@@ -282,12 +282,56 @@ by manual duplication.
 - **THEN** the Zod parser SHALL reject it and report which field(s)
   failed and why
 
-#### Scenario: JSON Schema matches Zod schema
-- **WHEN** the JSON Schema generation step runs against the current Zod
-  schemas
-- **THEN** the output is a valid JSON Schema document that accepts every
-  fixture CareerGraph accepted by the Zod schemas and rejects every
-  fixture rejected by them
+### Requirement: Two-layer validation contract for accepting a CareerGraph
+JSON Schema and Zod are two layers with distinct, non-interchangeable
+responsibilities, not two implementations of the same check:
+
+- **JSON Schema (portable, structural layer).** The generated JSON
+  Schema SHALL validate everything standard JSON Schema can express:
+  object shape, types, required fields, enums, and array constraints
+  (including the structured shape of `Requirement.experience` -
+  `minimumYears`, `unit`, `logic`, `subjects`).
+- **Zod (authoritative, semantic layer).** The Zod schema SHALL
+  additionally enforce every constraint standard JSON Schema cannot
+  express: `parentIds` cycle detection, referential integrity across
+  `parentIds`/`relatedNodeIds`/`provenance`/`Requirement.jobDescriptionId`,
+  provenance `jobDescriptionId` consistency with its resolved
+  `Requirement`, canonical id-derivation consistency, and any other
+  cross-object or cross-array invariant.
+
+JSON Schema and Zod are explicitly NOT required to have complete
+rejection parity: standard JSON Schema has no mechanism to express
+cross-object or cross-array invariants, so a candidate MAY pass JSON
+Schema validation and still be rejected by Zod. JSON Schema validation
+alone SHALL NEVER be treated as sufficient grounds to accept a
+CareerGraph.
+
+Any code path that accepts an externally supplied CareerGraph (e.g. a
+full replacement JSON pasted back from an AI) SHALL apply both layers in
+this order: parse the input as JSON, validate it against the generated
+JSON Schema, then validate it against the Zod schema; only a candidate
+that passes both SHALL be accepted.
+
+#### Scenario: JSON Schema rejects a structural violation before Zod is reached
+- **WHEN** an import candidate violates a constraint expressible in JSON
+  Schema (e.g. a node's `provenance` array is empty, violating
+  `minItems: 1`)
+- **THEN** the import contract rejects it at the JSON Schema stage
+
+#### Scenario: JSON Schema passes, Zod rejects a semantic-only violation
+- **WHEN** an import candidate is structurally valid (passes JSON
+  Schema) but violates a cross-object invariant JSON Schema cannot
+  express (e.g. a `parentIds` cycle between two `Capability` nodes -
+  structurally just two arrays of strings, indistinguishable from a
+  valid graph to JSON Schema)
+- **THEN** the import contract passes the JSON Schema stage but rejects
+  the candidate at the Zod/domain stage
+
+#### Scenario: A fully valid CareerGraph is accepted
+- **WHEN** an import candidate passes both the JSON Schema stage and the
+  Zod/domain stage
+- **THEN** the import contract accepts it and returns the parsed,
+  fully-typed CareerGraph
 
 ### Requirement: JSON Patch contract for external AI edits
 The system SHALL define how an externally authored RFC 6902 JSON Patch

@@ -92,17 +92,9 @@
       (task 7.1) and rejects at least one intentionally-invalid fixture,
       matching the Zod schema's accept/reject behavior on the same inputs
       (uses the empty-`provenance` variant: `minItems: 1` is a structural
-      constraint the generated JSON Schema retains. NOTE: the generated
-      JSON Schema is structural only - it cannot express the Zod
-      schema's cross-field `.superRefine` invariants (parentIds
-      acyclicity, referential integrity, id-derivation consistency, since
-      standard JSON Schema draft 2020-12 has no cross-array-element
-      reference mechanism. This is a real gap against spec.md's literal
-      "rejects every fixture rejected by them" wording for the cycle/
-      referential-integrity variants specifically - flagged for the user,
-      not silently narrowed; consumers needing those guarantees must
-      validate through the Zod schema, consistent with design.md's
-      Zod-source-of-truth decision)
+      constraint the generated JSON Schema retains. The earlier note here
+      about JSON Schema/Zod rejection parity is now formalized, not just
+      flagged - see group 8, "Two-layer validation contract")
 
 ## 6. JSON Patch contract
 
@@ -143,3 +135,25 @@
       corresponding automated test (53/53 tests passing across 8 files;
       every spec.md scenario mapped to a test - see implementation
       summary)
+
+## 8. Two-layer validation contract
+
+- [x] 8.1 Move JSON Schema generation into `src/domain/jsonSchema.ts`
+      (previously only in the CLI script) so the domain layer can depend
+      on it, and verify `npm run generate:schema` still produces the same
+      output via the script's thin re-export
+- [x] 8.2 Implement `validateCareerGraphImport(candidate: unknown)` in
+      `src/domain/validate.ts`, encoding the mandatory order - parse ->
+      JSON Schema (Ajv2020) -> Zod/domain -> accept - as executable code,
+      returning which stage rejected a candidate (`"json-schema"` |
+      `"domain"`) or the accepted, fully-typed `CareerGraph`
+- [x] 8.3 Verify unit tests for all three contract scenarios: a
+      structural violation (empty `provenance`) rejected at the
+      json-schema stage; a semantic-only violation (`parentIds` cycle)
+      that passes json-schema but is rejected at the domain stage,
+      demonstrating deliberate non-parity; and a fully valid candidate
+      accepted through both stages
+- [x] 8.4 Update spec.md ("Two-layer validation contract for accepting a
+      CareerGraph") and design.md to document that JSON Schema and Zod
+      are not required to have rejection parity, and that JSON Schema
+      validation alone is never sufficient to accept a CareerGraph

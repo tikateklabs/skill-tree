@@ -55,6 +55,25 @@ external tooling) is a lower-frequency derived artifact that tolerates a
 generation step (`zod-to-json-schema` or equivalent) better than the
 reverse.
 
+**Two-layer validation contract, no rejection parity between the
+layers.** Implementation surfaced a fact the first draft's "JSON Schema
+matches Zod schema" language glossed over: standard JSON Schema (Draft
+2020-12) has no mechanism to express cross-object or cross-array
+invariants, so it structurally *cannot* reproduce `parentIds` cycle
+detection, referential integrity, id-derivation consistency, or
+provenance/`jobDescriptionId` pairing - all of which live only in the
+Zod schema's `.superRefine`. Rather than pretend otherwise, the contract
+is now explicit and asymmetric: JSON Schema is the portable, structural
+layer (useful for AI-facing prompts and any external tool that wants a
+cheap first-pass check); Zod is the authoritative semantic layer and the
+only one with a completeness guarantee. `src/domain/validate.ts`
+(`validateCareerGraphImport`) encodes the mandatory order - parse -> JSON
+Schema -> Zod -> accept - as executable code, not just documentation, so
+"JSON Schema alone is never sufficient to accept a CareerGraph" is an
+enforced property of any code path that uses it, not a convention callers
+have to remember. See spec.md - "Two-layer validation contract for
+accepting a CareerGraph".
+
 **DAG for hierarchy via `parentIds[]`, acyclicity scoped to that edge
 kind only.**
 The product brief's example (Prometheus/Splunk/OpenTelemetry under
