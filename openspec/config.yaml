@@ -1,0 +1,55 @@
+schema: spec-driven
+
+context: |
+  Product: Skill Tree - a client-side career intelligence application.
+
+  Core idea: convert job descriptions (JDs) into a structured graph
+  (CareerGraph) of Role -> Capability -> Skill -> {Concept, Technology, Tool}.
+  Abstraction must never mean information loss: every node must remain
+  traceable to the exact JD requirement and original wording that produced
+  it. Years-of-experience requirements stated in JDs are first-class
+  structured data (minimum_years, optional maximum_years, logic AND/OR,
+  subjects[], verbatim source text) and must never be conflated with the
+  user's own personal experience.
+
+  Core principle: the CareerGraph JSON is the source of truth. The UI is a
+  renderer/editor of that model, not the source of truth itself.
+
+  V1 constraints (deliberate, not accidental):
+  - No backend, no database, no server-side LLM API.
+  - AI is external: the app generates a prompt the user pastes into
+    ChatGPT/Claude/Gemini; the AI returns CareerGraph JSON or a JSON Patch
+    (RFC 6902); the user imports the result back into the app, which
+    validates it before merging.
+  - Must be deployable as a static site (GitHub Pages target).
+
+  Tech direction (subject to confirmation per change, not yet locked in
+  repo config): TypeScript, React, Vite, Cytoscape.js for graph rendering,
+  Zod for runtime validation (source of truth for types), JSON Schema
+  generated from Zod for external/AI-facing prompts, IndexedDB/localStorage
+  for client-side persistence.
+
+  Conventions: kebab-case change/capability names. Domain-model changes
+  land under specs/ before any UI change depends on them.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
