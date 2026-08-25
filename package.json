@@ -1,0 +1,25 @@
+{
+  "name": "skill-tree",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Skill Tree - CareerGraph domain model",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "generate:schema": "tsx src/scripts/generateJsonSchema.ts",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3",
+    "fast-json-patch": "^3.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "ajv": "^8.20.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  }
+}
