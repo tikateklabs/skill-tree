@@ -14,15 +14,16 @@ structural mutation), `createdAt`/`updatedAt` timestamps, an array of
 `sourceJobDescriptions` (`JobDescription[]`), a `role` (`Role`, the single
 root node of the hierarchy), a flat `nodes` collection covering every
 `Capability`/`Skill`/`Concept`/`Technology`/`Tool` in the graph, and a flat
-`experienceRequirements` collection (`ExperienceRequirement[]`).
+`requirements` collection (`Requirement[]`, see "Requirement entity"
+below).
 
 #### Scenario: A minimal valid CareerGraph
 - **WHEN** a CareerGraph contains one `JobDescription`, one `Role`, one
-  `Capability`, one `Skill`, and no experience requirements
+  `Capability`, one `Skill`, and no requirements
 - **THEN** it validates successfully against the CareerGraph schema
 
 #### Scenario: A CareerGraph referencing multiple job descriptions
-- **WHEN** a CareerGraph's `nodes` include provenance pointing at two
+- **WHEN** a CareerGraph's `requirements` include entries pointing at two
   different entries in `sourceJobDescriptions`
 - **THEN** it validates successfully, since a graph MAY be built up from
   more than one JD over time
@@ -38,19 +39,78 @@ edited or normalized), and `importedAt` timestamp.
 - **THEN** `rawText` stores that text unmodified (no trimming, no
   re-formatting) so later quote-matching against it remains exact
 
+### Requirement: Requirement entity
+The system SHALL define a `Requirement` type representing one atomic,
+JD-derived requirement statement: `id`, `jobDescriptionId`, verbatim
+`sourceText` (the exact JD sentence or bullet this requirement was
+extracted from), and an optional `experience` object present only when
+that statement states a years-of-experience constraint. `experience`
+SHALL contain: `minimumYears` (non-negative number), optional
+`maximumYears` (number, `>= minimumYears` when present), `unit` (literal
+`"years"` for V1 - reserved for future units such as months), `logic`
+(`"SINGLE" | "AND" | "OR"`), and `subjects` (`string[]`, length exactly 1
+when `logic` is `"SINGLE"`, length >= 2 when `logic` is `"AND"` or
+`"OR"`). A `Requirement` with no `experience` object represents a
+non-years-based JD statement (e.g. "must have led an SRE team") and is
+still a valid, traceable requirement.
+
+#### Scenario: Single-subject experience requirement
+- **WHEN** the JD states "4+ years of experience with Python"
+- **THEN** the stored `Requirement` has `sourceText` equal to that exact
+  sentence and `experience` equal to `{ minimumYears: 4, unit: "years",
+  logic: "SINGLE", subjects: ["Python"] }`
+
+#### Scenario: OR-logic multi-subject experience requirement
+- **WHEN** the JD states "5+ years of experience in AIOps, SRE,
+  production engineering, or large-scale distributed systems operations"
+- **THEN** the stored `Requirement.experience` has `minimumYears: 5`,
+  `logic: "OR"`, and `subjects` equal to
+  `["AIOps", "SRE", "Production Engineering", "Large-scale distributed
+  systems operations"]`, in the order they appear in the source text
+
+#### Scenario: AND-logic multi-subject experience requirement
+- **WHEN** the JD states "3+ years combined experience in Kubernetes and
+  Terraform"
+- **THEN** the stored `Requirement.experience` has `minimumYears: 3`,
+  `logic: "AND"`, and `subjects: ["Kubernetes", "Terraform"]`
+
+#### Scenario: Range experience requirement
+- **WHEN** the JD states "3-5 years of experience with AWS"
+- **THEN** the stored `Requirement.experience` has `minimumYears: 3`,
+  `maximumYears: 5`, `logic: "SINGLE"`, `subjects: ["AWS"]`
+
+#### Scenario: Non-experience requirement is still traceable
+- **WHEN** the JD states "Must have led an on-call rotation for a
+  production SRE team" (no years-of-experience wording)
+- **THEN** the stored `Requirement` has `sourceText` equal to that
+  sentence and `experience` is absent (not an empty/zero-filled object)
+
+#### Scenario: Original wording is preserved exactly
+- **WHEN** any `Requirement` is stored
+- **THEN** its `sourceText` matches the JD wording character-for-character,
+  including punctuation and casing - no paraphrasing, truncation, or
+  normalization
+
+#### Scenario: Requirement is never conflated with personal experience
+- **WHEN** the domain model is used anywhere in the system
+- **THEN** there SHALL be no field, type, or code path in `Requirement` or
+  `experience` that represents the user's own personal years of
+  experience; personal-experience tracking, if ever added, requires a
+  distinct type introduced by a separate change
+
 ### Requirement: Node type hierarchy
 The system SHALL define six node kinds - `Role`, `Capability`, `Skill`,
 `Concept`, `Technology`, `Tool` - sharing a common base shape: `id`,
-`kind` (discriminant), `name`, optional `description`, `parentIds`
-(`string[]`, one or more parent node ids - empty only for `Role`),
-`relatedNodeIds` (`string[]`, non-hierarchical cross-links to other
-nodes), `provenance` (`Provenance[]`, non-empty), and
-`experienceRequirementIds` (`string[]`, may be empty). `Role` SHALL be
-unique per graph (exactly one). `Capability` nodes' parents SHALL be
-`Role` or `Capability`. `Skill` nodes' parents SHALL be `Capability`.
-`Concept`/`Technology`/`Tool` nodes' parents SHALL be `Skill` or one
-another's kind (to allow, e.g., a `Tool` requirement nested under a
-`Technology`).
+`kind` (discriminant), `namespace` (see "Node identity" below), `name`,
+optional `description`, `parentIds` (`string[]`, one or more parent node
+ids - empty only for `Role`), `relatedNodeIds` (`string[]`,
+non-hierarchical cross-links to other nodes), `provenance`
+(`Provenance[]`, non-empty), and `id` consistent with the node's derived
+canonical id. `Role` SHALL be unique per graph (exactly one). `Capability`
+nodes' parents SHALL be `Role` or `Capability`. `Skill` nodes' parents
+SHALL be `Capability`. `Concept`/`Technology`/`Tool` nodes' parents SHALL
+be `Skill` or one another's kind (to allow, e.g., a `Tool` requirement
+nested under a `Technology`).
 
 #### Scenario: A node with multiple parents
 - **WHEN** a `Technology` node named "Python" is required by both a
@@ -67,29 +127,81 @@ another's kind (to allow, e.g., a `Tool` requirement nested under a
 - **WHEN** a `Role` node declares a non-empty `parentIds`
 - **THEN** schema validation fails, since `Role` is always the graph root
 
-### Requirement: Node identity and de-duplication
-The system SHALL derive each non-`Role` node's `id` deterministically from
-its `kind` and normalized `name` (case-insensitive, whitespace-collapsed),
-so that re-importing AI output referring to the same concept (e.g.,
-"Prometheus" and "prometheus ") resolves to the same node id instead of
-creating a duplicate.
+### Requirement: Node identity via namespace-qualified canonical ids
+The system SHALL derive each non-`Role` node's canonical `id`
+deterministically from three parts - `kind`, `namespace`, and normalized
+`name` (case-insensitive, whitespace-collapsed) - as
+`"<kind>:<slug(namespace)>:<slug(name)>"`. `namespace` is a required,
+non-empty string on every node; when no more specific context is known it
+SHALL default to the literal value `"generic"`. Display `name` alone
+SHALL NOT be treated as a node's identity: two nodes of the same `kind`
+and `name` but different `namespace` are distinct nodes. The system SHALL
+NOT perform fuzzy or semantic entity resolution across namespaces in V1 -
+two nodes that a human would recognize as "the same real-world thing" but
+that were authored under different namespaces remain separate nodes until
+explicitly merged by a future capability.
 
-#### Scenario: Case and whitespace variants resolve to one node
-- **WHEN** one import creates a `Technology` node named "Prometheus" and a
-  later import references "prometheus" as a required technology
-- **THEN** both resolve to the same node id, and the second import adds a
-  `parentIds`/`provenance` entry to the existing node rather than creating
-  a new one
+#### Scenario: Same name, same namespace, resolves to one node
+- **WHEN** one import creates a `Technology` node named "Prometheus" with
+  `namespace: "generic"`, and a later import references "prometheus "
+  (trailing space) with `namespace: "generic"` as a required technology
+- **THEN** both resolve to the same node id
+  (`technology:generic:prometheus`), and the second import adds a
+  `parentIds`/`provenance` entry to the existing node rather than
+  creating a new one
 
-### Requirement: Provenance is mandatory
-The system SHALL define a `Provenance` type with `sourceJobDescriptionId`,
-verbatim `sourceQuote` (the exact JD wording that produced this node or
-requirement), and optional `rationale` (free-text explanation, e.g.
-supplied by an AI, of why this node was derived from that quote). Every
-node's `provenance` array SHALL contain at least one entry, and every
-`ExperienceRequirement` SHALL have exactly one `provenance` entry. A node
-with more than one provenance entry (produced by multiple JD requirements
-or multiple JDs) SHALL retain all of them.
+#### Scenario: Same name, different namespace, stays distinct
+- **WHEN** a `Technology` node "Atlas" is authored with
+  `namespace: "mongodb"` (id `technology:mongodb:atlas`) and a separate
+  `Technology` node "Atlas" is authored with `namespace: "internal"` (id
+  `technology:internal:atlas`)
+- **THEN** both validate as two distinct nodes; the system does not merge
+  them and does not flag them as a probable duplicate
+
+#### Scenario: Stored id must match its derivation
+- **WHEN** a node's stored `id` does not equal
+  `"<kind>:<slug(namespace)>:<slug(name)>"` computed from its own `kind`,
+  `namespace`, and `name`
+- **THEN** schema validation fails, since the id is not treated as
+  free-form - it is the derived canonical identity
+
+### Requirement: Hierarchical containment is acyclic
+The system SHALL treat `parentIds` edges as a "contains" relationship and
+SHALL reject any CareerGraph whose `parentIds` edges form a cycle
+(directly or transitively). `relatedNodeIds` edges are a separate,
+non-hierarchical relationship kind and are NOT required to be acyclic -
+future relationship kinds (e.g. `related_to`) MAY have different
+semantics without this requirement changing.
+
+#### Scenario: Direct cycle is rejected
+- **WHEN** a node's `parentIds` includes its own `id`
+- **THEN** schema validation fails with a cycle error
+
+#### Scenario: Transitive cycle is rejected
+- **WHEN** node A lists node B as a parent, node B lists node C as a
+  parent, and node C lists node A as a parent
+- **THEN** schema validation fails with a cycle error identifying the
+  cycle
+
+#### Scenario: A cycle in relatedNodeIds is not rejected
+- **WHEN** node A's `relatedNodeIds` includes node B and node B's
+  `relatedNodeIds` includes node A
+- **THEN** schema validation succeeds - `relatedNodeIds` carries no
+  "contains" semantics and is exempt from the acyclicity check
+
+### Requirement: Provenance establishes Job -> Requirement -> Node traceability
+The system SHALL define a `Provenance` type with `jobDescriptionId`,
+`requirementId` (a reference to a `Requirement.id`), and optional
+`rationale` (free-text explanation, e.g. supplied by an AI, of why this
+node was derived from that requirement). Every node's `provenance` array
+SHALL contain at least one entry. A node derived from more than one JD
+requirement (the same requirement bullet producing several nodes, the
+same node reappearing under multiple requirements, or across multiple
+JDs) SHALL retain one `Provenance` entry per originating requirement -
+none are dropped or overwritten. The requirement's own `sourceText` (not
+a copy stored on the node) is the single source of truth for the original
+JD wording, so a Skill Tree consumer can always walk
+`Node -> Provenance.requirementId -> Requirement.sourceText -> Requirement.jobDescriptionId -> JobDescription.rawText`.
 
 #### Scenario: Node with no provenance is rejected
 - **WHEN** a `Skill` node is submitted with an empty `provenance` array
@@ -98,81 +210,60 @@ or multiple JDs) SHALL retain all of them.
 
 #### Scenario: Node created independently of provenance
 - **WHEN** a user manually creates a node in the graph editor with no
-  associated JD text
+  associated JD requirement
 - **THEN** the system rejects the manual creation as it would violate the
   provenance-mandatory requirement (out of scope for this capability:
   provenance-free manual node creation, if ever supported, requires an
   explicit future model change, not a bypass of this rule)
 
-#### Scenario: A node accumulates provenance from two JDs
+#### Scenario: Node accumulates provenance from two requirements
+- **WHEN** a "Kubernetes" `Technology` node is first required by
+  requirement `req_010` and later also required by requirement `req_014`
+  within the same JD
+- **THEN** the node's `provenance` array contains one entry for
+  `req_010` and one entry for `req_014`
+
+#### Scenario: Node accumulates provenance from two JDs
 - **WHEN** a "Kubernetes" `Technology` node already has one provenance
   entry from JD A, and importing JD B's graph also requires "Kubernetes"
-- **THEN** the merged node's `provenance` array contains both entries,
-  and neither is dropped
+- **THEN** the merged node's `provenance` array contains a provenance
+  entry for the JD A requirement and one for the JD B requirement, and
+  neither is dropped
 
-### Requirement: Experience requirement structure
-The system SHALL define an `ExperienceRequirement` type with: `id`,
-`minimumYears` (non-negative number), optional `maximumYears` (number,
-must be `>= minimumYears` when present), `logic`
-(`"SINGLE" | "AND" | "OR"`), `subjects` (`string[]`, length exactly 1 when
-`logic` is `"SINGLE"`, length >= 2 when `logic` is `"AND"` or `"OR"`),
-`provenance` (a single `Provenance` entry holding the verbatim JD
-sentence), and `appliesToNodeIds` (`string[]`, the node(s) this
-requirement qualifies; may be empty when the requirement could not yet be
-linked to a resolved node).
+#### Scenario: Traceable end-to-end example
+- **WHEN** requirement `req_014` (`jobDescriptionId: "job_wellsfargo_principal"`,
+  `sourceText: "Experience with observability tooling such as
+  Prometheus, Splunk, and OpenTelemetry"`) produces a `Technology` node
+  "Prometheus" with `provenance: [{ jobDescriptionId:
+  "job_wellsfargo_principal", requirementId: "req_014" }]`
+- **THEN** resolving that provenance entry yields `req_014`'s exact
+  `sourceText`, and resolving `req_014.jobDescriptionId` yields the
+  `job_wellsfargo_principal` JobDescription's `rawText`
 
-#### Scenario: Single-subject requirement
-- **WHEN** the JD states "4+ years of experience with Python"
-- **THEN** the stored `ExperienceRequirement` has `minimumYears: 4`,
-  `logic: "SINGLE"`, `subjects: ["Python"]`, and `sourceQuote` equal to
-  that exact sentence
+### Requirement: Graph-wide referential integrity
+The system SHALL validate that every id reference within a CareerGraph
+resolves to an entity present in that same graph: node `parentIds`,
+node `relatedNodeIds`, node `provenance[].requirementId`, node
+`provenance[].jobDescriptionId`, and `Requirement.jobDescriptionId`.
+Additionally, a node's `provenance[].jobDescriptionId` SHALL match the
+`jobDescriptionId` of the `Requirement` its `requirementId` resolves to -
+the two references must agree.
 
-#### Scenario: OR-logic multi-subject requirement
-- **WHEN** the JD states "5+ years of experience in AIOps, SRE,
-  production engineering, or large-scale distributed systems operations"
-- **THEN** the stored `ExperienceRequirement` has `minimumYears: 5`,
-  `logic: "OR"`, and `subjects` equal to
-  `["AIOps", "SRE", "Production Engineering", "Large-scale distributed
-  systems operations"]`, in the order they appear in the source text
+#### Scenario: Dangling parent reference is rejected
+- **WHEN** a node's `parentIds` includes an id with no matching node in
+  the graph
+- **THEN** schema validation fails
 
-#### Scenario: AND-logic multi-subject requirement
-- **WHEN** the JD states "3+ years combined experience in Kubernetes and
-  Terraform"
-- **THEN** the stored `ExperienceRequirement` has `minimumYears: 3`,
-  `logic: "AND"`, and `subjects: ["Kubernetes", "Terraform"]`
+#### Scenario: Dangling requirement reference is rejected
+- **WHEN** a node's `provenance[].requirementId` does not match any
+  entry in `CareerGraph.requirements`
+- **THEN** schema validation fails
 
-#### Scenario: Range requirement
-- **WHEN** the JD states "3-5 years of experience with AWS"
-- **THEN** the stored `ExperienceRequirement` has `minimumYears: 3`,
-  `maximumYears: 5`, `logic: "SINGLE"`, `subjects: ["AWS"]`
-
-#### Scenario: Requirement is never conflated with personal experience
-- **WHEN** the domain model is used anywhere in the system
-- **THEN** there SHALL be no field, type, or code path in the
-  `ExperienceRequirement` type or its schema that represents the user's
-  own personal years of experience; personal-experience tracking, if ever
-  added, requires a distinct type introduced by a separate change
-
-### Requirement: Experience requirements link to graph nodes
-The system SHALL allow an `ExperienceRequirement.appliesToNodeIds` to
-reference zero or more nodes, and a node's `experienceRequirementIds` to
-reference zero or more requirements, with both sides of the link kept
-consistent (every id on one side has a matching back-reference on the
-other).
-
-#### Scenario: Requirement linked to a resolved skill node
-- **WHEN** an OR-logic requirement for "AIOps, SRE, production
-  engineering, or large-scale distributed systems operations" is attached
-  to the "AIOps" `Capability` node
-- **THEN** `appliesToNodeIds` contains that node's id and that node's
-  `experienceRequirementIds` contains the requirement's id
-
-#### Scenario: Unlinked requirement remains valid
-- **WHEN** an `ExperienceRequirement` is extracted from a JD sentence
-  that does not clearly map to any existing node yet
-- **THEN** the requirement is still stored with `appliesToNodeIds: []`
-  rather than being dropped, preserving the JD information until it can
-  be linked
+#### Scenario: Inconsistent job/requirement pairing is rejected
+- **WHEN** a node's provenance entry has `jobDescriptionId: "job_a"` but
+  its `requirementId` resolves to a `Requirement` whose own
+  `jobDescriptionId` is `"job_b"`
+- **THEN** schema validation fails, since the two references disagree
 
 ### Requirement: Runtime and static validation
 The system SHALL implement the CareerGraph domain model as Zod schemas
@@ -186,7 +277,8 @@ by manual duplication.
 #### Scenario: Invalid graph is rejected at runtime
 - **WHEN** application code parses a CareerGraph JSON value that violates
   any requirement in this spec (e.g. missing provenance, invalid parent
-  kind, malformed experience requirement)
+  kind, a parentIds cycle, a malformed `experience` object, a
+  namespace/name id mismatch)
 - **THEN** the Zod parser SHALL reject it and report which field(s)
   failed and why
 
@@ -222,12 +314,35 @@ can be detected.
 The system SHALL include at least one hand-authored, schema-valid
 CareerGraph JSON fixture derived from a realistic sample job description,
 covering: a multi-level node chain (`Role -> Capability -> Skill ->
-Technology`), a node with two parents, a `SINGLE`-logic experience
-requirement, and an `OR`-logic experience requirement, used as a
-regression baseline for the validation contract.
+Technology`), a node with two parents, two nodes of the same `kind` and
+`name` distinguished only by `namespace`, a `SINGLE`-logic experience
+requirement, an `OR`-logic experience requirement, and at least one
+non-experience `Requirement`. The fixture SHALL include, verbatim, both
+of the following JD sentences as separate `Requirement` entries, and
+automated tests SHALL assert the exact structured values shown:
+
+1. "4+ years of experience with Python" ->
+   `experience: { minimumYears: 4, unit: "years", logic: "SINGLE",
+   subjects: ["Python"] }`
+2. "5+ years of experience in AIOps, SRE, production engineering, or
+   large-scale distributed systems operations" ->
+   `experience: { minimumYears: 5, unit: "years", logic: "OR",
+   subjects: ["AIOps", "SRE", "Production Engineering", "Large-scale
+   distributed systems operations"] }` (`subjects.length === 4`)
+
+Both `Requirement.sourceText` values SHALL be asserted to match the
+quoted sentences above character-for-character.
 
 #### Scenario: Fixture stays valid
 - **WHEN** the fixture CareerGraph is parsed against the current Zod
   schemas as part of the test suite
 - **THEN** it validates successfully; any change to the schemas that
   breaks the fixture must update the fixture deliberately, not silently
+
+#### Scenario: Fixture also exercises rejection paths
+- **WHEN** the test suite derives intentionally-invalid variants of the
+  fixture (a `parentIds` cycle; a node with empty `provenance`; a
+  provenance entry whose `jobDescriptionId` disagrees with its resolved
+  requirement)
+- **THEN** each variant is rejected by the Zod schema with an error
+  identifying the violated requirement
