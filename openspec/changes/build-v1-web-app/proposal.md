@@ -72,6 +72,11 @@ sequencing it across several changes.
   consuming `src/domain/` as a library. New dependencies: react,
   react-dom, vite, cytoscape (+ a DAG layout extension), idb (IndexedDB
   wrapper). No changes to `src/domain/`.
+- A GitHub Actions workflow (`.github/workflows/deploy.yml`) publishes
+  the built app to GitHub Pages on push to the default branch - the app
+  is only reachable at a public URL once that workflow has run against
+  `main` and the repository's Pages source is set to "GitHub Actions"
+  (a one-time manual setting this change cannot flip itself).
 - This is the last change in the V1 dependency chain from
   `define-careergraph-domain-model`'s design.md (Domain -> JSON Schema ->
   Validation -> Graph -> JD Import -> Prompts -> Patches -> Persistence) -

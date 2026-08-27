@@ -39,6 +39,20 @@ Alternative considered: a workspace/monorepo split (`packages/domain`,
 this size - one `npm install`, one `npm test`, one `npm run build`
 stays simpler and is easy to split later if it's ever needed.
 
+**No fabricated "empty starter graph" - `CareerGraph | null` plus a
+guided first-graph creation flow.** `Role.provenance` is mandatory and
+must resolve to a `Requirement`, which must resolve to a
+`JobDescription` - the frozen domain model makes a schema-valid graph
+with zero JDs/requirements impossible. (The domain spec's "minimal valid
+CareerGraph" scenario text predates the Requirement-entity revision and
+is stale on this point; the shipped schema, its tests, and the reference
+fixture all already require this.) Rather than fabricate a placeholder
+JD/Requirement to manufacture a fake "empty" graph, app state is
+`CareerGraph | null`; `null` renders a "create your first graph" flow
+(JobDescription -> at least one Requirement -> Role referencing it) that
+produces a genuinely valid graph through the same schema-gated path as
+every other mutation - not a special-cased bypass.
+
 **State: React Context + `useReducer` over a single `CareerGraph`, not a
 state-management library.** All mutations (add/edit/delete node, add
 requirement, apply patch, import full graph) are reducer actions. Every
@@ -125,6 +139,22 @@ an app of this size; revisit if the UI grows enough to need it.
 **No client-side router.** Single-page app; the active panel
 (`graph | jd-import | prompt | import-response`) is component state, not
 a URL route. Avoids a routing dependency V1 doesn't need.
+
+**GitHub Pages deployment via a GitHub Actions workflow, relative Vite
+`base`.** `vite.config.ts` already uses `base: "./"` (relative asset
+paths), which works unmodified whether the site is served from a user/
+org root (`https://<owner>.github.io/`) or a project subpath
+(`https://<owner>.github.io/skill-tree/`) - no repo-name-specific
+configuration needed, and no client-side router means no path-based
+routing to break under a subpath either. A workflow
+(`.github/workflows/deploy.yml`) builds with `npm run build` and
+publishes `dist/` via `actions/upload-pages-artifact` +
+`actions/deploy-pages`, triggered on push to the default branch (`main`)
+and via manual dispatch - not on this feature branch, since Pages should
+publish what's actually merged. The repository's Settings -> Pages ->
+Source must be set to "GitHub Actions" once (a one-time, human,
+out-of-band step - not something a workflow file can do) before the
+first deploy runs.
 
 **Testing: Vitest + Testing Library for logic/components; a small
 Playwright smoke test against the built app for the golden path.**

@@ -16,9 +16,11 @@
 ## 2. State management and persistence
 
 - [ ] 2.1 Implement the `CareerGraphProvider` (React Context +
-      `useReducer`) wrapping a single active `CareerGraph`, with an
-      empty starter graph as the initial default, and verify a unit
-      test confirms the starter graph validates against
+      `useReducer`) wrapping `CareerGraph | null` (`null` = no graph
+      created yet - a schema-valid empty graph is impossible since
+      `Role.provenance` must reference a `Requirement`), and verify a
+      unit test confirms the "create first graph" action (JobDescription
+      + Requirement + Role) produces a result that validates against
       `careerGraphSchema`
 - [ ] 2.2 Implement the mutation-gating pattern: every reducer action
       computes a candidate graph, validates it via `careerGraphSchema`
@@ -146,6 +148,13 @@
 - [ ] 8.2 Confirm the production build (`npm run build`) works with a
       non-root `base` path (simulate a GitHub Pages project-site path)
       and verify assets load correctly under `npm run preview`
+- [ ] 8.3 Add `.github/workflows/deploy.yml`: build with `npm run
+      build` and publish `dist/` to GitHub Pages via
+      `actions/upload-pages-artifact` + `actions/deploy-pages`,
+      triggered on push to `main` and manual dispatch, and verify the
+      workflow YAML is syntactically valid (actual deploy requires
+      Settings -> Pages -> Source = "GitHub Actions", a one-time human
+      step this task cannot perform - flag it in the completion report)
 
 ## 9. Full verification
 
@@ -159,8 +168,8 @@
       previewed app: load -> graph renders -> select a node -> inspector
       shows content, and verify it passes
 - [ ] 9.5 Manually drive the app in a browser through the full golden
-      path - start from the empty starter graph, add a JobDescription,
-      record a Requirement, add a node against it, generate a prompt,
-      paste back a hand-authored valid full-graph response, confirm the
-      diff preview, commit, reload the page, confirm persistence - and
-      report the result
+      path - start with no graph, create the first CareerGraph
+      (JobDescription -> Requirement -> Role), add a node against it,
+      generate a prompt, paste back a hand-authored valid full-graph
+      response, confirm the diff preview, commit, reload the page,
+      confirm persistence - and report the result

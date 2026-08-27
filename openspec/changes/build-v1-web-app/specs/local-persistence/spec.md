@@ -9,19 +9,27 @@ persistence V1 has, with no backend and no account.
 ### Requirement: The active CareerGraph survives a page reload
 The system SHALL persist the active CareerGraph to the browser's
 IndexedDB after every accepted mutation, and SHALL load it from
-IndexedDB on app start. If no graph has been saved yet, the system
-SHALL start from an empty starter graph (a bare `Role` with no
-children).
+IndexedDB on app start. A `Role` node's `provenance` is mandatory and
+must reference a `Requirement`, which in turn requires a
+`JobDescription` - so no schema-valid CareerGraph can exist with zero
+JDs and zero requirements. If no graph has been saved yet, the system
+SHALL NOT fabricate a placeholder JobDescription/Requirement to
+manufacture one; instead it SHALL show a "no graph yet" state that walks
+the user through the minimum needed to create a genuinely valid first
+CareerGraph: a JobDescription, at least one Requirement recorded against
+it, and a Role whose provenance references that Requirement.
 
 #### Scenario: A saved graph is restored on reload
 - **WHEN** a user makes an edit and then reloads the page
 - **THEN** the app shows the graph including that edit, without the user
   re-importing anything
 
-#### Scenario: First run with nothing saved starts from an empty graph
+#### Scenario: First run with nothing saved prompts graph creation
 - **WHEN** the app is opened with no prior IndexedDB record
-- **THEN** the app shows a valid, empty starter CareerGraph rather than
-  an error
+- **THEN** the app shows the "no graph yet" creation flow rather than an
+  empty or fabricated CareerGraph, and no CareerGraph is persisted until
+  the user completes it with a real JobDescription, Requirement, and
+  Role
 
 ### Requirement: Exporting the active graph to a file
 The system SHALL let a user download the active CareerGraph as a
