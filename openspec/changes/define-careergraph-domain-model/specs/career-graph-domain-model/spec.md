@@ -18,8 +18,9 @@ root node of the hierarchy), a flat `nodes` collection covering every
 below).
 
 #### Scenario: A minimal valid CareerGraph
-- **WHEN** a CareerGraph contains one `JobDescription`, one `Role`, one
-  `Capability`, one `Skill`, and no requirements
+- **WHEN** a CareerGraph contains one `JobDescription`, one `Requirement`
+  referencing it, one `Role`, one `Capability`, and one `Skill`, each
+  with provenance referencing that `Requirement`
 - **THEN** it validates successfully against the CareerGraph schema
 
 #### Scenario: A CareerGraph referencing multiple job descriptions
