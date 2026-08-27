@@ -4,12 +4,11 @@ import {
   useEffect,
   useReducer,
   useRef,
+  useState,
   type ReactNode,
 } from "react";
 import { type AppAction, type AppState, initialState, reducer } from "./reducer.js";
 import { loadPersistedGraph, savePersistedGraph } from "./persistence.js";
-
-const AUTOSAVE_DEBOUNCE_MS = 300;
 
 interface CareerGraphContextValue {
   state: AppState;
@@ -20,15 +19,26 @@ const CareerGraphContext = createContext<CareerGraphContextValue | null>(null);
 
 export function CareerGraphProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const hasLoadedRef = useRef(false);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  // Mirrors state.graph synchronously (updated during render, not via an
+  // effect) so the async load callback below can check the *current*
+  // value rather than the one captured in its closure at mount time.
+  const graphRef = useRef(state.graph);
+  graphRef.current = state.graph;
 
   useEffect(() => {
     let cancelled = false;
     loadPersistedGraph().then((graph) => {
       if (cancelled) return;
-      hasLoadedRef.current = true;
-      dispatch({ type: "LOAD", graph });
+      // If the user already created/imported a graph while this load
+      // was in flight, applying the (now-stale) loaded value would
+      // silently overwrite their work - most often back to `null`, since
+      // nothing had been saved yet when the load started. Only apply it
+      // if nothing has happened in the meantime.
+      if (graphRef.current === null) {
+        dispatch({ type: "LOAD", graph });
+      }
+      setHasLoaded(true);
     });
     return () => {
       cancelled = true;
@@ -37,19 +47,20 @@ export function CareerGraphProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Don't persist until the initial load has resolved - otherwise the
-    // pre-load `null` state would overwrite a real saved graph.
-    if (!hasLoadedRef.current || !state.graph) return;
+    // pre-load state could overwrite a real saved graph. `hasLoaded` is
+    // real state (not a ref) specifically so this effect re-runs and
+    // saves once loading completes even if a mutation happened *during*
+    // the load and `state.graph` itself didn't change again afterward.
+    if (!hasLoaded || !state.graph) return;
 
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    const graph = state.graph;
-    saveTimeoutRef.current = setTimeout(() => {
-      void savePersistedGraph(graph);
-    }, AUTOSAVE_DEBOUNCE_MS);
-
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    };
-  }, [state.graph]);
+    // Every `state.graph` change is already one discrete, deliberate
+    // mutation (a form submit dispatches one reducer action; nothing
+    // dispatches per-keystroke), so there's no rapid-fire-events case to
+    // debounce against - only a real risk of losing a save if the page
+    // is closed/reloaded before a debounce timer fires. Save
+    // immediately instead.
+    void savePersistedGraph(state.graph);
+  }, [state.graph, hasLoaded]);
 
   return (
     <CareerGraphContext.Provider value={{ state, dispatch }}>
